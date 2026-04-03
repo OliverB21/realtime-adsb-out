@@ -33,7 +33,8 @@ class ADSBLowLevelEncoder:
         self._adsb_frame_preamble_IQ = [val for chip in me_bits for val in ([127, 0] if chip else [0, 0])]
 
         # Pause buffer: silence IQ pairs (0, 0) for the inter-frame gap
-        # Each element in _adsb_frame_pause represents 8 chip periods; each chip is one IQ pair (2 bytes)
+        # Each element of _adsb_frame_pause represents 8 chip periods (one bit per chip at 2 chips/bit),
+        # and each chip becomes one IQ pair (2 bytes), so multiply by 8 chips/byte * 1 IQ pair/chip.
         self._adsb_frame_pause_IQ = [0, 0] * (len(self._adsb_frame_pause) * 8)
 
         self._len_pre_IQ = len(self._adsb_frame_preamble_IQ)
