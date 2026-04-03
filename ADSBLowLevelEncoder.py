@@ -21,15 +21,20 @@ class ADSBLowLevelEncoder:
         self._adsb_frame_pause = [0]*4
 
         # Build a manchester encoding lookup table
+        # Each Manchester chip maps to an IQ pair: high chip -> (127, 0), low chip -> (0, 0)
         self._manchester_lookup = []
         for i in range(256):
             me = self.manchester_encode(i)
-            self._manchester_lookup.append([127*val for pair in zip(me, me) for val in pair])
+            self._manchester_lookup.append([val for chip in me for val in ([127, 0] if chip else [0, 0])])
 
-        # Build preamble and pause manchester encoded versions
+        # Build preamble IQ: preamble bytes are raw chip patterns (not Manchester encoded)
+        # Each chip maps to an IQ pair: high -> (127, 0), low -> (0, 0)
         me_bits = numpy.unpackbits(numpy.asarray(self._adsb_frame_preamble, dtype=numpy.uint8))
-        self._adsb_frame_preamble_IQ = [127*val for pair in zip(me_bits, me_bits) for val in pair]
-        self._adsb_frame_pause_IQ = self._adsb_frame_pause*16
+        self._adsb_frame_preamble_IQ = [val for chip in me_bits for val in ([127, 0] if chip else [0, 0])]
+
+        # Pause buffer: silence IQ pairs (0, 0) for the inter-frame gap
+        # Each element in _adsb_frame_pause represents 8 chip periods; each chip is one IQ pair (2 bytes)
+        self._adsb_frame_pause_IQ = [0, 0] * (len(self._adsb_frame_pause) * 8)
 
         self._len_pre_IQ = len(self._adsb_frame_preamble_IQ)
         self._len_pause_IQ = len(self._adsb_frame_pause_IQ)
@@ -54,9 +59,9 @@ class ADSBLowLevelEncoder:
         # Encode byte
         for i in range(7, -1, -1):
             if self.extract_bit(byte, i):
-                manchester_encoded.extend([1,0])
-            else:
                 manchester_encoded.extend([0,1])
+            else:
+                manchester_encoded.extend([1,0])
 
         return manchester_encoded
 
