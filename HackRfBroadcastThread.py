@@ -34,6 +34,8 @@ from ADSBLowLevelEncoder import ADSBLowLevelEncoder
 from pyhackrf import *
 from ctypes import *
 
+DEBUG = False  # Set to True to enable debug output
+
 class hackrf_tx_context(Structure):
     _fields_ = [("buffer", POINTER(c_ubyte)),
                 ("last_tx_pos", c_int),
@@ -70,6 +72,8 @@ class HackRfBroadcastThread(threading.Thread):
         result = HackRF.initialize()
         if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
             print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+        elif DEBUG:
+            print("[HackRfBroadcastThread] HackRF library initialized successfully")
 
         # Initialize HackRF instance (could pass board serial or index if specific board is needed)
         self._hackrf_broadcaster = HackRF()
@@ -80,30 +84,44 @@ class HackRfBroadcastThread(threading.Thread):
         result = self._hackrf_broadcaster.open()
         if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
             print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+        elif DEBUG:
+            print("[HackRfBroadcastThread] HackRF device opened successfully")
 
         self._hackrf_broadcaster.setCrystalPPM(0)
+        if DEBUG:
+            print(f"[HackRfBroadcastThread] Crystal PPM set to: {self._hackrf_broadcaster.getCrystalPPM()}")
             
         result = self._hackrf_broadcaster.setSampleRate(2000000)
         if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
             print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+        elif DEBUG:
+            print(f"[HackRfBroadcastThread] setSampleRate(2000000) returned: {result} (success)")
 
         result = self._hackrf_broadcaster.setBasebandFilterBandwidth(HackRF.computeBaseBandFilterBw(2000000))
         if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
             print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+        elif DEBUG:
+            print(f"[HackRfBroadcastThread] setBasebandFilterBandwidth returned: {result} (success)")
 
         #result = self.hackrf_broadcaster.setFrequency(868000000)   # free frequency for over the air brodcast tests
         result = self._hackrf_broadcaster.setFrequency(1090000000)  # do not use 1090MHz for actual over the air broadcasting
                                                                     # only if you use wire feed (you'll need attenuators in that case)
         if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
             print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+        elif DEBUG:
+            print(f"[HackRfBroadcastThread] setFrequency(1090000000 Hz) returned: {result} (success)")
 
-        result = self._hackrf_broadcaster.setTXVGAGain(4)            # week gain (used for wire feed + attenuators)
+        result = self._hackrf_broadcaster.setTXVGAGain(4)            # weak gain (used for wire feed + attenuators)
         if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
             print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+        elif DEBUG:
+            print(f"[HackRfBroadcastThread] setTXVGAGain(4 dB) returned: {result} (success)")
 
         result = self._hackrf_broadcaster.setAmplifierMode(LibHackRfHwMode.HW_MODE_OFF)
         if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
-            print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))        
+            print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+        elif DEBUG:
+            print(f"[HackRfBroadcastThread] setAmplifierMode(OFF) returned: {result} (success)")
 
         self._tx_context = hackrf_tx_context()
 
@@ -130,6 +148,12 @@ class HackRfBroadcastThread(threading.Thread):
     def replace_message(self,type,frame_even,frame_odd = []):
 
         frame_IQ = self._lowlevelencoder.frame_1090es_ppm_modulate_IQ(frame_even, frame_odd)
+
+        if DEBUG:
+            iq_size = len(frame_IQ) if frame_IQ is not None else 0
+            even_size = len(frame_even) if frame_even else 0
+            odd_size = len(frame_odd) if frame_odd else 0
+            print(f"[HackRfBroadcastThread] replace_message('{type}'): even={even_size}B, odd={odd_size}B -> IQ={iq_size} samples")
 
           # this will usually be called from another thread, so mutex lock mecanism is used during update
 
@@ -172,6 +196,8 @@ class HackRfBroadcastThread(threading.Thread):
 
             if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
                 print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+            elif DEBUG:
+                print(f"[HackRfBroadcastThread] startTX returned: {result} (success), streaming {length} bytes (~{length * 0.5:.1f} us)")
 
             while self._hackrf_broadcaster.isStreaming():
                 time.sleep(sleep_time)
@@ -179,6 +205,8 @@ class HackRfBroadcastThread(threading.Thread):
             result = self._hackrf_broadcaster.stopTX()
             if (result != LibHackRfReturnCode.HACKRF_SUCCESS):
                 print("Error :",result, ",", HackRF.getHackRfErrorCodeName(result))
+            elif DEBUG:
+                print(f"[HackRfBroadcastThread] stopTX returned: {result} (success)")
 
             #self._mutex.release() 
 
@@ -189,8 +217,11 @@ class HackRfBroadcastThread(threading.Thread):
             now = datetime.datetime.now(datetime.timezone.utc)
             plane_messages = bytearray()
             sleep_time = 10.0
+            if DEBUG:
+                now_str = now.strftime("%H:%M:%S.%f")[:-3]
+                print(f"[HackRfBroadcastThread] Broadcast cycle at {now_str}")
             for thread_broadcast_schedule in self._messages_feed_threads.values():
-                for v in thread_broadcast_schedule.values():
+                for msg_type, v in thread_broadcast_schedule.items():
                     #now = datetime.datetime.now(datetime.timezone.utc)
                     v2_sec = v[2]*1e-6
                     if v[1] != None:
@@ -202,17 +233,25 @@ class HackRfBroadcastThread(threading.Thread):
                     # TODO : implement UTC syncing mecanism (requiered that the actual host clock is UTC synced) ?
                     #        which may be implemented to some accuracy level with ntp or GPS + PPS mecanisms ? in Python ?
                     if (v[0] != None and len(v[0]) > 0) and remaining <= 0.0:
+                        if DEBUG:
+                            print(f"[HackRfBroadcastThread] Queuing '{msg_type}': {len(v[0])} IQ samples")
                         plane_messages.extend(v[0])
                         v[1] = now
                     elif remaining > 0.0:
+                        if DEBUG:
+                            print(f"[HackRfBroadcastThread] '{msg_type}' not ready: {remaining:.4f}s remaining")
                         remaining = math.fmod(remaining,v2_sec)
                         if remaining < sleep_time:
                             sleep_time = remaining
+                    elif DEBUG:
+                        print(f"[HackRfBroadcastThread] '{msg_type}' has no data yet")
 
 
             #print("sleep_time1",sleep_time)
             bc_length = len(plane_messages)
             if (bc_length > 0):
+                if DEBUG:
+                    print(f"[HackRfBroadcastThread] Broadcasting {bc_length} bytes total")
                 self.broadcast_data(plane_messages)
 
                 elasped = (datetime.datetime.now(datetime.timezone.utc) - now).total_seconds()

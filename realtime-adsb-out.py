@@ -25,12 +25,17 @@ from RandomTrajectorySimulator import RandomTrajectorySimulator
 from WaypointsTrajectorySimulator import WaypointsTrajectorySimulator
 from HackRfBroadcastThread import HackRfBroadcastThread
 
+import ADSBLowLevelEncoder as _ADSBLowLevelEncoderMod
+import HackRfBroadcastThread as _HackRfBroadcastThreadMod
+import AbstractTrajectorySimulatorBase as _AbstractTrajectorySimulatorBaseMod
+
 from getopt import getopt, GetoptError
 
 def usage(msg=False):
     if msg:print(msg)
     print("Usage: %s [options]\n" % sys.argv[0])
     print("-h | --help              Display help message.")
+    print("--debug                  Enable debug output throughout the pipeline")
     print("--scenario <opt>          Scenario mode with a provided scenario filepath")
     print("--icao <opt>             Callsign in hex, Default:0x508035")
     print("--callsign <opt>         Callsign (8 chars max), Default:DEADBEEF")
@@ -100,9 +105,10 @@ def main():
     waypoints_file = None
     posrate = 150000
     scenariofile = None
+    debug = False
     try:
         (opts, args) = getopt(sys.argv[1:], 'h', \
-            ['help','scenario=','icao=','callsign=','squawk=','trajectorytype=','lat=','long=','altitude=','speed=','vspeed=','maxloadfactor=','trackangle=',
+            ['help','debug','scenario=','icao=','callsign=','squawk=','trajectorytype=','lat=','long=','altitude=','speed=','vspeed=','maxloadfactor=','trackangle=',
             'timesync=','capability=','typecode=','sstatus=','nicsupplementb=','surface','posrate='
             ])
     except GetoptError as err:
@@ -111,6 +117,7 @@ def main():
     if len(opts) != 0:
         for (opt, arg) in opts:
             if opt in ('-h', '--help'):usage()
+            elif opt in ('--debug'):debug = True
             elif opt in ('--scenario'):scenariofile = arg
             elif opt in ('--icao'):icao_aa = arg
             elif opt in ('--callsign'):callsign = arg
@@ -138,11 +145,23 @@ def main():
     track_simulators = []
     broadcast_thread = HackRfBroadcastThread(posrate) # posrate would usally be used with random mode to generate load of tracks
 
+    if debug:
+        _ADSBLowLevelEncoderMod.DEBUG = True
+        _HackRfBroadcastThreadMod.DEBUG = True
+        _AbstractTrajectorySimulatorBaseMod.DEBUG = True
+        print("[Main] Debug mode enabled")
+
     if scenariofile == None:
         print("Going to run in single plane from command line mode")
         aircraftinfos = AircraftInfos(icao_aa,callsign,squawk, \
                                     lat_deg,lon_deg,alt_ft,speed_kph,vspeed_ftpmin,maxloadfactor,track_angle_deg, \
                                     timesync,capability,type_code,surveillance_status,nicsup,on_surface)
+
+        if debug:
+            print(f"[Main] Aircraft info: ICAO={icao_aa}, callsign='{callsign}', squawk={squawk}")
+            print(f"[Main]   Position: lat={lat_deg}, lon={lon_deg}, alt={alt_ft}ft")
+            print(f"[Main]   Speed: {speed_kph}kph, track={track_angle_deg}deg, vspeed={vspeed_ftpmin}fpm")
+            print(f"[Main]   Trajectory type: {trajectory_type}")
 
         track_simulation = getTrackSimulationThread(trajectory_type,broadcast_thread,aircraftinfos,waypoints_file)
 
@@ -175,8 +194,12 @@ def main():
 
     # start all threads
     for tsim in track_simulators:
+        if debug:
+            print(f"[Main] Starting trajectory simulator thread for callsign: {tsim.aircraftinfos.callsign}")
         tsim.start()
 
+    if debug:
+        print("[Main] Starting HackRF broadcast thread")
     broadcast_thread.start()
 
     # user input loop. Todo : implement other commands ? (in that case don't forget to check if mutex protection is needed)
@@ -185,16 +208,24 @@ def main():
 
     # stop all threads
     for tsim in track_simulators:
+        if debug:
+            print(f"[Main] Stopping trajectory simulator thread for callsign: {tsim.aircraftinfos.callsign}")
         tsim.stop()
         
+    if debug:
+        print("[Main] Stopping HackRF broadcast thread")
     broadcast_thread.stop()
 
     # wait for all threads to terminate
     for tsim in track_simulators:
         tsim.join()
+        if debug:
+            print(f"[Main] Trajectory simulator thread joined for callsign: {tsim.aircraftinfos.callsign}")
     broadcast_thread.join()
+    if debug:
+        print("[Main] HackRF broadcast thread joined")
 
-    print("reatime-adsb-out simulation is finished")
+    print("realtime-adsb-out simulation is finished")
 
 if __name__ == "__main__":
     main()
