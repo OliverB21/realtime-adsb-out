@@ -13,10 +13,15 @@ this program. If not, see <http://www.gnu.org/licenses/>.
 from CustomDecorators import *
 import numpy
 
+DEBUG = False  # Set to True to enable debug output
+
 @Singleton
 class ADSBLowLevelEncoder:
 
     def __init__(self):
+        if DEBUG:
+            print("[ADSBLowLevelEncoder] Initializing Manchester encoder...")
+
         self._adsb_frame_preamble = [0xA1,0x40]
         self._adsb_frame_pause = [0]*4
 
@@ -33,6 +38,11 @@ class ADSBLowLevelEncoder:
 
         self._len_pre_IQ = len(self._adsb_frame_preamble_IQ)
         self._len_pause_IQ = len(self._adsb_frame_pause_IQ)
+
+        if DEBUG:
+            print(f"[ADSBLowLevelEncoder] Manchester encoding initialized")
+            print(f"[ADSBLowLevelEncoder] Preamble: {len(self._adsb_frame_preamble)} bytes -> {self._len_pre_IQ} IQ samples ({self._len_pre_IQ / 2000000 * 1e6:.1f} us @ 2MHz)")
+            print(f"[ADSBLowLevelEncoder] Pause: {self._len_pause_IQ} samples ({self._len_pause_IQ / 2000000 * 1e6:.1f} us @ 2MHz)")
 
 ###############################################################
 # Further work on fork
@@ -81,7 +91,13 @@ class ADSBLowLevelEncoder:
             for b in even:
                 tmp.extend(self._manchester_lookup[b])
             IQ[pos:pos+32*length_even] = tmp
-            
+
+            if DEBUG:
+                print(f"[ADSBLowLevelEncoder] Generated IQ frame: {len(IQ)} samples (pause={self._len_pause_IQ}, pre={self._len_pre_IQ}, data={32*length_even})")
+                print(f"[ADSBLowLevelEncoder] First 64 IQ samples (hex): {IQ[:64].hex()}")
+                if IQ:
+                    print(f"[ADSBLowLevelEncoder] IQ amplitude: min={min(IQ)}, max={max(IQ)}")
+
             return IQ
 
         elif (length_even != 0 and length_odd != 0):
@@ -107,7 +123,13 @@ class ADSBLowLevelEncoder:
                 tmp.extend(self._manchester_lookup[b])
 
             IQ[pos:pos+32*length_odd] = tmp
-        
+
+            if DEBUG:
+                print(f"[ADSBLowLevelEncoder] Generated IQ frame (even+odd): {len(IQ)} samples (pause={self._len_pause_IQ}, pre={self._len_pre_IQ}, even_data={32*length_even}, odd_data={32*length_odd})")
+                print(f"[ADSBLowLevelEncoder] First 64 IQ samples (hex): {IQ[:64].hex()}")
+                if IQ:
+                    print(f"[ADSBLowLevelEncoder] IQ amplitude: min={min(IQ)}, max={max(IQ)}")
+
             return IQ
 
         else:
