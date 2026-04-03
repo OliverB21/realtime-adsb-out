@@ -228,7 +228,12 @@ class HackRfBroadcastThread(threading.Thread):
                         remaining = v2_sec - (now - v[1]).total_seconds()
                     else:
                         remaining = -float('inf')
-                        sleep_time = 0.0
+                        # Only force an immediate wakeup if data is already waiting to be sent.
+                        # If there is no data yet, keep the current sleep_time so the thread
+                        # doesn't busy-spin while waiting for the trajectory simulator to
+                        # produce the first frame.
+                        if v[0] is not None:
+                            sleep_time = 0.0
                     # Time throttling : messages are broadcasted only at provided time intervall
                     # TODO : implement UTC syncing mecanism (requiered that the actual host clock is UTC synced) ?
                     #        which may be implemented to some accuracy level with ntp or GPS + PPS mecanisms ? in Python ?
@@ -266,7 +271,7 @@ class HackRfBroadcastThread(threading.Thread):
 
                 time.sleep(0.1*sleep_time)
             else:
-                time.sleep(0.000001)
+                time.sleep(sleep_time)
             #self._mutex.release()
 
         # upon exit, reset _do_stop flag in case there is a new start
